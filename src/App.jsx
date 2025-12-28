@@ -293,6 +293,8 @@ function App() {
   const [reconnecting, setReconnecting] = useState(false)
   const [qrCode, setQrCode] = useState(null)
   const [showQr, setShowQr] = useState(false)
+  const [qrLoading, setQrLoading] = useState(false)
+  const qrTimeoutRef = useRef(null)
 
   // Conversations
   const [chats, setChats] = useState([])
@@ -548,7 +550,7 @@ function App() {
   }
 
   // Fetch QR Code
-  const fetchQrCode = async (autoShow = false) => {
+  const fetchQrCode = async () => {
     try {
       const response = await fetch(`${WAHA_URL}/api/default/auth/qr`, {
         headers: { 'X-Api-Key': API_KEY }
@@ -557,64 +559,88 @@ function App() {
         const blob = await response.blob()
         const url = URL.createObjectURL(blob)
         setQrCode(url)
-        if (autoShow) setShowQr(true)
+        setQrLoading(false)
+        // Clear timeout since we got QR
+        if (qrTimeoutRef.current) {
+          clearTimeout(qrTimeoutRef.current)
+        }
       }
     } catch (e) {
       console.error('Failed to fetch QR:', e)
     }
   }
 
+  // Open QR modal with loading
+  const openQrModal = () => {
+    setQrCode(null)
+    setQrLoading(true)
+    setShowQr(true)
+
+    // Set 30 second timeout
+    qrTimeoutRef.current = setTimeout(() => {
+      if (!qrCode) {
+        setShowQr(false)
+        setQrLoading(false)
+        showToast('QR code timeout. Try again.', 'error')
+      }
+    }, 30000)
+
+    // Start fetching
+    fetchQrCode()
+  }
+
+  // Close QR modal
+  const closeQrModal = () => {
+    setShowQr(false)
+    setQrLoading(false)
+    if (qrTimeoutRef.current) {
+      clearTimeout(qrTimeoutRef.current)
+    }
+  }
+
   // Poll for QR when session needs scanning
   useEffect(() => {
     let interval
-    if (session?.status === 'SCAN_QR_CODE') {
-      fetchQrCode(true)
-      interval = setInterval(() => fetchQrCode(false), 5000)
+    if (session?.status === 'SCAN_QR_CODE' && showQr) {
+      interval = setInterval(fetchQrCode, 5000)
     } else if (session?.status === 'WORKING') {
-      setShowQr(false)
+      closeQrModal()
+      showToast('Connected! 🎉')
     }
     return () => clearInterval(interval)
-  }, [session?.status])
+  }, [session?.status, showQr])
 
   // Reconnect Session
   const reconnectSession = async () => {
     setReconnecting(true)
+    // Immediately show QR modal with loading
+    openQrModal()
+
     try {
-      // Try to start the existing session first
-      try {
-        await wahaApi('/api/sessions/default/start', 'POST')
-        showToast('Reconnecting... 🔄')
-      } catch (e) {
-        // If start fails, try stop then start
-        try {
-          await wahaApi('/api/sessions/default/stop', 'POST')
-        } catch (stopErr) {
-          // Ignore stop errors
-        }
-        await wahaApi('/api/sessions/default/start', 'POST')
-        showToast('Reconnecting... 🔄')
-      }
-      // Show QR code
-      setTimeout(() => {
-        fetchQrCode(true)
-      }, 2000)
-    } catch (e) {
-      // If all else fails, try to create a new session
-      try {
+      // First check if session exists
+      const sessions = await wahaApi('/api/sessions')
+      const exists = sessions.some(s => s.name === 'default')
+
+      if (exists) {
+        // Use PUT to restart existing session (stops and starts fresh)
+        await wahaApi('/api/sessions', 'PUT', {
+          name: 'default',
+          config: {
+            noweb: { store: { enabled: false } }
+          }
+        })
+      } else {
+        // Create new session with POST
         await wahaApi('/api/sessions', 'POST', {
           name: 'default',
           config: {
-            webhooks: [],
-            noweb: { store: { enabled: true } }
+            noweb: { store: { enabled: false } }
           }
         })
-        showToast('Session created, scan QR to connect 📱')
-        setTimeout(() => {
-          fetchQrCode(true)
-        }, 2000)
-      } catch (createErr) {
-        showToast('Failed to reconnect. Check WAHA server.', 'error')
       }
+    } catch (e) {
+      closeQrModal()
+      showToast('Failed to reconnect. Check WAHA server.', 'error')
     }
     setReconnecting(false)
   }
@@ -726,13 +752,13 @@ function App() {
 
       {/* QR Code Modal */}
       <AnimatePresence>
-        {showQr && qrCode && session?.status !== 'WORKING' && (
+        {showQr && session?.status !== 'WORKING' && (
           <motion.div
             className="qr-modal-overlay"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={() => setShowQr(false)}
+            onClick={closeQrModal}
           >
             <motion.div
               className="qr-modal"
@@ -743,23 +769,34 @@ function App() {
             >
               <h3>📱 Scan QR Code</h3>
               <p>Open WhatsApp on your phone and scan this code</p>
-              <div className="qr-image-container">
-                <img src={qrCode} alt="WhatsApp QR Code" />
-              </div>
-              <div className="qr-buttons">
-                <motion.button
-                  className="btn btn-primary"
-                  onClick={() => fetchQrCode(false)}
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                >
-                  <RefreshCw size={18} />
-                  Refresh QR
-                </motion.button>
-                <button className="btn btn-secondary" onClick={() => setShowQr(false)}>
-                  Close
-                </button>
-              </div>
+
+              {qrLoading && !qrCode ? (
+                <div className="qr-loading">
+                  <motion.div
+                    animate={{ rotate: 360 }}
+                    transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                  >
+                    <RefreshCw size={48} />
+                  </motion.div>
+                  <span>Loading QR code...</span>
+                </div>
+              ) : qrCode ? (
+                <div className="qr-image-container" onClick={fetchQrCode}>
+                  <img src={qrCode} alt="WhatsApp QR Code" />
+                  <div className="qr-refresh-overlay">
+                    <RefreshCw size={48} />
+                    <span>Click to refresh</span>
+                  </div>
+                </div>
+              ) : (
+                <div className="qr-loading">
+                  <span>Waiting for QR code...</span>
+                </div>
+              )}
+
+              <button className="btn btn-secondary" onClick={closeQrModal}>
+                Close
+              </button>
             </motion.div>
           </motion.div>
         )}
