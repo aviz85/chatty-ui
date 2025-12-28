@@ -1,16 +1,109 @@
-# React + Vite
+# Chatty UI - WhatsApp Automation Dashboard
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A fun, Waze-inspired WhatsApp automation dashboard built with React + Vite, powered by WAHA (WhatsApp HTTP API).
 
-Currently, two official plugins are available:
+## Prerequisites
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+- Node.js 18+
+- Docker
+- npm or yarn
 
-## React Compiler
+## Quick Start
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. Start WAHA (WhatsApp API)
 
-## Expanding the ESLint configuration
+```bash
+docker run -d --name waha \
+  -p 3001:3000 \
+  -e WHATSAPP_API_KEY=myapikey \
+  -e WHATSAPP_DEFAULT_ENGINE=NOWEB \
+  devlikeapro/waha
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### 2. Install Dependencies
+
+```bash
+npm install
+```
+
+### 3. Start the App
+
+```bash
+npm start
+```
+
+This runs both:
+- **Backend** (Express + SQLite) on `http://localhost:3002`
+- **Frontend** (Vite + React) on `http://localhost:5173`
+
+### 4. Connect WhatsApp
+
+1. Open `http://localhost:5173`
+2. Click **Reconnect** in the header
+3. Scan the QR code with WhatsApp on your phone
+4. Wait for "WORKING" status
+
+## Available Scripts
+
+| Command | Description |
+|---------|-------------|
+| `npm start` | Start both frontend and backend |
+| `npm run dev` | Start frontend only |
+| `npm run server` | Start backend only |
+| `npm run build` | Build for production |
+
+## Features
+
+- **Quick Send** - Send messages to any phone number
+- **Bulk Send** - Queue messages to multiple recipients
+- **Templates** - Save and reuse message templates
+- **Favorites** - Quick access to frequent contacts
+- **Contact Checker** - Verify WhatsApp numbers
+- **Chats** - View recent conversations (requires store)
+- **Queue Manager** - Monitor bulk send progress
+
+## API Endpoints
+
+### WAHA (port 3001)
+- `GET /api/sessions` - List sessions
+- `PUT /api/sessions` - Create/restart session
+- `GET /api/default/auth/qr` - Get QR code
+- `POST /api/sendText` - Send message
+
+### Backend (port 3002)
+- `GET/POST /api/favorites` - Manage favorites
+- `GET/POST /api/templates` - Manage templates
+- `GET/POST /api/history` - Message history
+- `GET/POST /api/queue` - Message queue
+- `GET /api/stats` - Dashboard stats
+
+## Configuration
+
+Edit `src/App.jsx` to change:
+
+```javascript
+const WAHA_URL = 'http://localhost:3001'
+const API_URL = 'http://localhost:3002'
+const API_KEY = 'myapikey'
+```
+
+## Troubleshooting
+
+### QR Code not scanning
+- Wait 15-30 minutes (WhatsApp rate limit)
+- Remove old linked devices from WhatsApp settings
+- Restart WAHA: `docker restart waha`
+
+### Session errors
+- Stop and recreate: `docker stop waha && docker rm waha` then start again
+- Check logs: `docker logs waha`
+
+### 422 "Session already exists"
+- The app now handles this automatically with PUT requests
+- If issues persist, restart WAHA container
+
+## Tech Stack
+
+- **Frontend**: React 19, Vite, Framer Motion, Lucide Icons
+- **Backend**: Express 5, better-sqlite3
+- **WhatsApp**: WAHA (devlikeapro/waha)
