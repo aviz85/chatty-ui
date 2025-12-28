@@ -645,41 +645,38 @@ function App() {
     setReconnecting(false)
   }
 
-  // Load Chats from WAHA
+  // Load Chats from our backend (incoming messages via webhook)
   const loadChats = async () => {
     setChatsLoading(true)
     try {
-      // WAHA API: /api/{session}/chats
-      const data = await wahaApi('/api/default/chats?limit=20&sortBy=messageTimestamp&sortOrder=desc')
-      setChats(data || [])
-      if (data?.length > 0) {
-        showToast(`Loaded ${data.length} conversations`)
+      // Get incoming messages from our backend
+      const data = await api('/api/incoming?limit=50')
+      // Group by phone to show as conversations
+      const grouped = {}
+      for (const msg of data) {
+        if (!grouped[msg.phone]) {
+          grouped[msg.phone] = {
+            id: msg.chat_id,
+            name: msg.sender_name || msg.phone,
+            lastMessage: { body: msg.message, timestamp: msg.timestamp },
+            messages: []
+          }
+        }
+        grouped[msg.phone].messages.push(msg)
       }
+      setChats(Object.values(grouped))
     } catch (e) {
       console.error('Failed to load chats:', e)
-      // NOWEB engine requires Store to be enabled
-      showToast('Failed to load chats. Make sure Store is enabled for NOWEB engine.', 'error')
+      // Silently fail - webhook will populate messages as they come
     }
     setChatsLoading(false)
   }
 
-  // Load Messages for a Chat
-  const loadChatMessages = async (chatId) => {
-    setMessagesLoading(true)
-    try {
-      const data = await wahaApi(`/api/default/chats/${encodeURIComponent(chatId)}/messages?limit=50`)
-      setChatMessages(data || [])
-    } catch (e) {
-      console.error('Failed to load messages:', e)
-      showToast('Failed to load messages', 'error')
-    }
-    setMessagesLoading(false)
-  }
-
-  // Select a chat
+  // Select a chat (messages are already loaded in the chat object)
   const selectChat = (chat) => {
     setSelectedChat(chat)
-    loadChatMessages(chat.id)
+    // Messages are already in chat.messages from loadChats
+    setChatMessages(chat.messages || [])
   }
 
   // Get chat summary stats

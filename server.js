@@ -48,6 +48,18 @@ db.exec(`
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     processed_at DATETIME
   );
+
+  CREATE TABLE IF NOT EXISTS incoming_messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id TEXT UNIQUE,
+    chat_id TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    sender_name TEXT,
+    message TEXT,
+    timestamp INTEGER,
+    is_from_me INTEGER DEFAULT 0,
+    received_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
 `)
 
 // Insert default templates if empty
@@ -226,6 +238,82 @@ app.delete('/api/queue', (req, res) => {
   try {
     db.prepare('DELETE FROM queue_jobs').run()
     res.json({ success: true })
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// ============ INCOMING MESSAGES (Webhook) ============
+
+// Webhook endpoint for WAHA to send messages
+app.post('/api/webhook', (req, res) => {
+  try {
+    const payload = req.body
+    console.log('📨 Webhook received:', payload.event)
+
+    // Handle message events
+    if (payload.event === 'message') {
+      const msg = payload.payload
+
+      // Extract phone from chat ID (e.g., "972501234567@c.us" -> "972501234567")
+      const phone = msg.from?.replace('@c.us', '').replace('@s.whatsapp.net', '') || ''
+
+      const stmt = db.prepare(`
+        INSERT OR IGNORE INTO incoming_messages
+        (message_id, chat_id, phone, sender_name, message, timestamp, is_from_me)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `)
+
+      stmt.run(
+        msg.id,
+        msg.chatId || msg.from,
+        phone,
+        msg.senderName || msg._data?.notifyName || phone,
+        msg.body || msg.text || '[media]',
+        msg.timestamp || Math.floor(Date.now() / 1000),
+        msg.fromMe ? 1 : 0
+      )
+
+      console.log(`💬 Message from ${phone}: ${(msg.body || '').substring(0, 50)}...`)
+    }
+
+    res.json({ success: true })
+  } catch (err) {
+    console.error('Webhook error:', err)
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Get incoming messages
+app.get('/api/incoming', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50
+    const since = req.query.since // Optional: get messages after this ID
+
+    let query = 'SELECT * FROM incoming_messages'
+    const params = []
+
+    if (since) {
+      query += ' WHERE id > ?'
+      params.push(since)
+    }
+
+    query += ' ORDER BY timestamp DESC LIMIT ?'
+    params.push(limit)
+
+    const messages = db.prepare(query).all(...params)
+    res.json(messages)
+  } catch (err) {
+    res.status(500).json({ error: err.message })
+  }
+})
+
+// Get new messages count (for polling)
+app.get('/api/incoming/count', (req, res) => {
+  try {
+    const since = req.query.since || 0
+    const count = db.prepare('SELECT COUNT(*) as count FROM incoming_messages WHERE id > ?').get(since)
+    res.json(count)
   } catch (err) {
     res.status(500).json({ error: err.message })
   }
