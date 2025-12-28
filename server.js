@@ -251,8 +251,8 @@ app.post('/api/webhook', (req, res) => {
     const payload = req.body
     console.log('📨 Webhook received:', payload.event)
 
-    // Handle message events
-    if (payload.event === 'message') {
+    // Handle message events (both 'message' and 'message.any')
+    if (payload.event === 'message' || payload.event === 'message.any') {
       const msg = payload.payload
 
       // Extract phone from chat ID (e.g., "972501234567@c.us" -> "972501234567")
